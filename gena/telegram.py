@@ -1,10 +1,12 @@
 import boto3
 import random
 import numpy as np
-# import torch
+import torch
+import logging
+import os
 
 # from bs4 import BeautifulSoup
-# from transformers import GPT2LMHeadModel, GPT2Tokenizer
+from transformers import GPT2LMHeadModel, GPT2Tokenizer
 from aiogram import Bot, types
 from aiogram.utils import executor
 from aiogram.dispatcher import FSMContext, Dispatcher
@@ -12,51 +14,52 @@ from aiogram.dispatcher.filters import Text, Filter
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 
-bot = Bot(token='1868573125:AAGlocZJ6gu8ZASb4htCyf59vGBYj2iYYWs')
+bot = Bot(token=os.environ['BOT_TOKEN'])
 dp = Dispatcher(bot)
 
-headers = {'X-API-KEY': '69fe63b7-6181-4972-8d37-8a2f0e459f7c'}
 modes = ['Случайный анекдот', 'Задать начало']
-ENDPOINT = "https://docapi.serverless.yandexcloud.net/ru-central1/b1g1fpqdg6m60mitk5ja/etn02r7q0t1hdfgh4m6r"
-ACCESS_KEY = 'DZw7BIw5ooWxqz7FZjgj'#os.environ['ACCESS_KEY']
-SECRET_KEY = 'CZQN9LcHQvuLpX5jC-gGtNUFVBnYK1ig4Tmd0QOT' #os.environ['SECRET_KEY']
+ENDPOINT = os.environ['ENDPOINT']
+ACCESS_KEY = os.environ['ACCESS_KEY']
+SECRET_KEY = os.environ['SECRET_KEY']
+
 
 np.random.seed(42)
-# torch.manual_seed(42)
+torch.manual_seed(42)
 
 
-# def load_tokenizer_and_model(model_name_or_path):
-#     return GPT2Tokenizer.from_pretrained(model_name_or_path), GPT2LMHeadModel.from_pretrained(model_name_or_path).cuda()
-#
-#
-# def generate(
-#     model, tok, text,
-#     do_sample=True, max_length=50, repetition_penalty=5.0,
-#     top_k=5, top_p=0.95, temperature=1,
-#     num_beams=None,
-#     no_repeat_ngram_size=3
-#     ):
-#     input_ids = tok.encode(text, return_tensors="pt").cuda()
-#     out = model.generate(
-#       input_ids.cuda(),
-#       max_length=max_length,
-#       repetition_penalty=repetition_penalty,
-#       do_sample=do_sample,
-#       top_k=top_k, top_p=top_p, temperature=temperature,
-#       num_beams=num_beams, no_repeat_ngram_size=no_repeat_ngram_size
-#       )
-#     return list(map(tok.decode, out))
+def load_tokenizer_and_model(model_name_or_path):
+    return GPT2Tokenizer.from_pretrained(model_name_or_path), GPT2LMHeadModel.from_pretrained(model_name_or_path)
 
 
-# tok, model = load_tokenizer_and_model("sberbank-ai/rugpt3small_based_on_gpt2")
+tok, model = load_tokenizer_and_model("/home/bulat/gena/models/rugpt3small_based_on_gpt2")
 
 
-n = 1
-
-file = open('anecdotes.csv', encoding='utf-8')
+file = open('/home/bulat/gena/gena/anecdotes.csv', encoding='utf-8')
 read = file.readlines()
 for i in range(len(read)):
     read[i] = read[i].replace('<br/>', '\n').replace('<br>', '\n').replace('</br>', '\n')
+
+
+def generate(
+    model, tok, text,
+    do_sample=True, max_length=50, repetition_penalty=5.0,
+    top_k=5, top_p=0.95, temperature=1,
+    num_beams=None,
+    no_repeat_ngram_size=3
+    ):
+    input_ids = tok.encode(text, return_tensors="pt")
+    out = model.generate(
+      input_ids,
+      max_length=max_length,
+      repetition_penalty=repetition_penalty,
+      do_sample=do_sample,
+      top_k=top_k, top_p=top_p, temperature=temperature,
+      num_beams=num_beams, no_repeat_ngram_size=no_repeat_ngram_size
+      )
+    return list(map(tok.decode, out))
+
+
+n = 1
 
 
 def load_user_info(user, table):
@@ -114,6 +117,7 @@ def CreateRankButton():
 
 @dp.message_handler(commands=['start'])
 async def send_welcome(message):
+    logging.info('Privet')
     await message.answer(f'*Привет, {message.from_user.first_name}!* '
                          f'*Я Не Олег*! Ты можешь поднять себе настроение, почитав мои уморительные анекдоты!',
                          parse_mode='Markdown')
@@ -124,6 +128,7 @@ async def send_welcome(message):
     parameters = {'user_id': message.chat.id, 'mode': 0, 'anec': ''}
     load_user_info(parameters, 'NeOleg')
     await message.answer('Выбери способ генерации анекдотов.', reply_markup=markup)
+
 
 
 @dp.message_handler(Text(modes), content_types=['text'])
@@ -142,17 +147,19 @@ async def process_step(message):
 
 
 @dp.message_handler(RandomAnec(), content_types=['text'])
-async def get_film_by_year(message):
+async def change_mode(message):
     await message.answer(f'Смените режим генерации анекдотов на *Задать начало*',
                          parse_mode='Markdown')
 
 
 @dp.message_handler(AnecByStart(), content_types=['text'])
-async def get_film_by_year(message):
+async def get_anec_by_start(message):
     global n
     markup = CreateRankButton()
 
-    await message.answer(f'{message.text}',
+    generated = generate(model, tok, message.text, num_beams=10)
+
+    await message.answer(f'{generated[0]}',
                          reply_markup=markup,
                          parse_mode='Markdown')
 
@@ -160,7 +167,7 @@ async def get_film_by_year(message):
     n += 1
 
 @dp.callback_query_handler(Text(startswith='rate'))
-async def callback_chosen_film(call):
+async def callback_rate(call):
     global n
     rate = call.data.split()[1]
     anec = get_user(call.message.chat.id, 'NeOleg', 'user_id')['anec']
@@ -169,8 +176,8 @@ async def callback_chosen_film(call):
     await call.answer(f'Спасибо за оценку!!! \U0001F60D')
 
 
-
-
 if __name__ == '__main__':
     executor.start_polling(dp)
+    logging.info('Privet')
+
 
