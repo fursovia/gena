@@ -5,14 +5,12 @@ import torch
 import logging
 import os
 
-# from bs4 import BeautifulSoup
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
 from aiogram import Bot, types
 from aiogram.utils import executor
 from aiogram.dispatcher import FSMContext, Dispatcher
 from aiogram.dispatcher.filters import Text, Filter
-from aiogram.dispatcher.filters.state import State, StatesGroup
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
+
 
 bot = Bot(token=os.environ['BOT_TOKEN'])
 dp = Dispatcher(bot)
@@ -21,23 +19,25 @@ modes = ['Случайный анекдот', 'Задать начало']
 ENDPOINT = os.environ['ENDPOINT']
 ACCESS_KEY = os.environ['ACCESS_KEY']
 SECRET_KEY = os.environ['SECRET_KEY']
-
-
-np.random.seed(42)
-torch.manual_seed(42)
-
+n = 1
 
 def load_tokenizer_and_model(model_name_or_path):
     return GPT2Tokenizer.from_pretrained(model_name_or_path), GPT2LMHeadModel.from_pretrained(model_name_or_path)
 
 
-tok, model = load_tokenizer_and_model("/home/bulat/gena/models/rugpt3small_based_on_gpt2")
+def create_model():
+    np.random.seed(42)
+    torch.manual_seed(42)
+    tok, model = load_tokenizer_and_model("/home/bulat/gena/models/rugpt3small_based_on_gpt2")
+    return tok, model
 
 
-file = open('/home/bulat/gena/gena/anecdotes.csv', encoding='utf-8')
-read = file.readlines()
-for i in range(len(read)):
-    read[i] = read[i].replace('<br/>', '\n').replace('<br>', '\n').replace('</br>', '\n')
+def create_datast_of_rand_anec():
+    file = open('/home/bulat/gena/gena/anecdotes.csv', encoding='utf-8')
+    read = file.readlines()
+    for i in range(len(read)):
+        read[i] = read[i].replace('<br/>', '\n').replace('<br>', '\n').replace('</br>', '\n')
+    return read
 
 
 def generate(
@@ -57,9 +57,6 @@ def generate(
       num_beams=num_beams, no_repeat_ngram_size=no_repeat_ngram_size
       )
     return list(map(tok.decode, out))
-
-
-n = 1
 
 
 def load_user_info(user, table):
@@ -130,10 +127,10 @@ async def send_welcome(message):
     await message.answer('Выбери способ генерации анекдотов.', reply_markup=markup)
 
 
-
 @dp.message_handler(Text(modes), content_types=['text'])
 async def process_step(message):
-    global n, read
+    global n
+    read = create_datast_of_rand_anec()
     if message.text == 'Случайный анекдот':
         markup = CreateRankButton()
         anec = read[random.choice(range(len(read)))]
@@ -156,8 +153,8 @@ async def change_mode(message):
 async def get_anec_by_start(message):
     global n
     markup = CreateRankButton()
-
-    generated = generate(model, tok, message.text, num_beams=10)
+    tok, model = create_model()
+    generated = generate(model, tok, message.text, num_beams=10, max_length=50)
 
     await message.answer(f'{generated[0]}',
                          reply_markup=markup,
@@ -165,6 +162,7 @@ async def get_anec_by_start(message):
 
     update_user(message.chat.id, 'anec', message.text, 'NeOleg', 'user_id')
     n += 1
+
 
 @dp.callback_query_handler(Text(startswith='rate'))
 async def callback_rate(call):
