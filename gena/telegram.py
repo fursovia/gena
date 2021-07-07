@@ -1,9 +1,10 @@
 import boto3
 import random
-import numpy as np
 import torch
 import logging
 import os
+
+import numpy as np
 
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
 from aiogram import Bot, types
@@ -19,7 +20,12 @@ modes = ['Случайный анекдот', 'Задать начало']
 ENDPOINT = os.environ['ENDPOINT']
 ACCESS_KEY = os.environ['ACCESS_KEY']
 SECRET_KEY = os.environ['SECRET_KEY']
-n = 1
+
+
+def start_logging(user_id, anec, rate):
+    logging.basicConfig(filename='/home/bulat/gena/gena/bot.log', filemode='w', format='%(message)s')
+    logging.warning(f'{user_id} <pp> {anec} <pp> {rate}')
+
 
 def load_tokenizer_and_model(model_name_or_path):
     return GPT2Tokenizer.from_pretrained(model_name_or_path), GPT2LMHeadModel.from_pretrained(model_name_or_path)
@@ -32,7 +38,7 @@ def create_model():
     return tok, model
 
 
-def create_datast_of_rand_anec():
+def create_dataset_of_rand_anec():
     file = open('/home/bulat/gena/gena/anecdotes.csv', encoding='utf-8')
     read = file.readlines()
     for i in range(len(read)):
@@ -129,14 +135,12 @@ async def send_welcome(message):
 
 @dp.message_handler(Text(modes), content_types=['text'])
 async def process_step(message):
-    global n
-    read = create_datast_of_rand_anec()
+    read = create_dataset_of_rand_anec()
     if message.text == 'Случайный анекдот':
         markup = CreateRankButton()
         anec = read[random.choice(range(len(read)))]
         update_user(message.chat.id, 'anec', anec, 'NeOleg', 'user_id')
         update_user(message.chat.id, 'mode', 0, 'NeOleg', 'user_id')
-        n += 1
         await message.answer(anec, reply_markup=markup)
     elif message.text == 'Задать начало':
         update_user(message.chat.id, 'mode', 1, 'NeOleg', 'user_id')
@@ -151,31 +155,27 @@ async def change_mode(message):
 
 @dp.message_handler(AnecByStart(), content_types=['text'])
 async def get_anec_by_start(message):
-    global n
     markup = CreateRankButton()
     tok, model = create_model()
     generated = generate(model, tok, message.text, num_beams=10, max_length=50)
-
     await message.answer(f'{generated[0]}',
                          reply_markup=markup,
                          parse_mode='Markdown')
 
-    update_user(message.chat.id, 'anec', message.text, 'NeOleg', 'user_id')
-    n += 1
+    update_user(message.chat.id, 'anec', generated[0], 'NeOleg', 'user_id')
 
 
 @dp.callback_query_handler(Text(startswith='rate'))
 async def callback_rate(call):
-    global n
-    rate = call.data.split()[1]
+    rate = 0 if call.data.split()[1] == 'dislike' else 1
     anec = get_user(call.message.chat.id, 'NeOleg', 'user_id')['anec']
-    parameters = {'code': n, 'user_id': call.message.chat.id, 'Anec': anec, 'Rate': rate}
-    load_user_info(parameters, 'NeOlegLogging')
+    start_logging(call.message.chat.id, anec.replace('\n', '<br>'), rate)
     await call.answer(f'Спасибо за оценку!!! \U0001F60D')
 
 
 if __name__ == '__main__':
     executor.start_polling(dp)
-    logging.info('Privet')
+
+
 
 
