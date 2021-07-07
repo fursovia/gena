@@ -12,14 +12,13 @@ from aiogram.dispatcher.filters import Text, Filter
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 
-bot = Bot(token='1868573125:AAGlocZJ6gu8ZASb4htCyf59vGBYj2iYYWs')
+bot = Bot(token='')
 dp = Dispatcher(bot)
 
-headers = {'X-API-KEY': '69fe63b7-6181-4972-8d37-8a2f0e459f7c'}
 modes = ['Случайный анекдот', 'Задать начало']
-ENDPOINT = "https://docapi.serverless.yandexcloud.net/ru-central1/b1g1fpqdg6m60mitk5ja/etn02r7q0t1hdfgh4m6r"
-ACCESS_KEY = 'DZw7BIw5ooWxqz7FZjgj'#os.environ['ACCESS_KEY']
-SECRET_KEY = 'CZQN9LcHQvuLpX5jC-gGtNUFVBnYK1ig4Tmd0QOT' #os.environ['SECRET_KEY']
+ENDPOINT = 'EDPOINT'
+ACCESS_KEY = 'ACCESS_KEY' #os.environ['ACCESS_KEY']
+SECRET_KEY = 'SECRET_KEY' #os.environ['SECRET_KEY']
 
 np.random.seed(42)
 # torch.manual_seed(42)
