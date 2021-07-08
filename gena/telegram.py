@@ -26,7 +26,7 @@ dp = Dispatcher(bot)
 ROOT_DIR = (Path(__file__).parent / "..").resolve()
 ANECDOTES_FILE = ROOT_DIR / "data" / "anecdotes.csv"
 
-modes = ('Случайный анекдот', 'Задать начало')
+MODES = ('Случайный анекдот', 'Задать начало')
 ENDPOINT = os.environ['ENDPOINT']
 ACCESS_KEY = os.environ['ACCESS_KEY']
 SECRET_KEY = os.environ['SECRET_KEY']
