@@ -1,29 +1,38 @@
-import boto3
 import random
-import torch
 import logging
 import os
-import generate_transformers as gg
+from pathlib import Path
+from typing import List, Optional
 
+import boto3
+import torch
 import numpy as np
-
+import generate_transformers as gg
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
 from aiogram import Bot, types
 from aiogram.utils import executor
 from aiogram.dispatcher import FSMContext, Dispatcher
 from aiogram.dispatcher.filters import Text, Filter
 
+random.seed(42)
+np.random.seed(42)
+torch.manual_seed(42)
 
 bot = Bot(token=os.environ['BOT_TOKEN'])
 dp = Dispatcher(bot)
+
+ROOT_DIR = (Path(__file__).parent / "..").resolve()
+ANECDOTES_FILE = ROOT_DIR / "data" / "anecdotes.csv"
 
 modes = ['Случайный анекдот', 'Задать начало']
 ENDPOINT = os.environ['ENDPOINT']
 ACCESS_KEY = os.environ['ACCESS_KEY']
 SECRET_KEY = os.environ['SECRET_KEY']
+LOGS_FILE = os.environ.get("LOGS_FILE", "/home/bulat/gena/gena/file.log")
+MODEL_DIR = os.environ.get("MODEL_DIR", "/home/bulat/gena/models/rugpt3small_based_on_gpt2")
 
 logger = logging.getLogger(__name__)
-f_handler = logging.FileHandler('/home/bulat/gena/gena/file.log')
+f_handler = logging.FileHandler(LOGS_FILE)
 f_handler.setLevel(logging.DEBUG)
 f_handler.setFormatter(logging.Formatter('%(message)s'))
 logger.addHandler(f_handler)
@@ -38,27 +47,33 @@ def load_tokenizer_and_model(model_name_or_path):
 
 
 def create_model():
-    np.random.seed(42)
-    torch.manual_seed(42)
-    tok, model = load_tokenizer_and_model("/home/bulat/gena/models/rugpt3small_based_on_gpt2")
+    tok, model = load_tokenizer_and_model(MODEL_DIR)
     return tok, model
 
 
 def create_dataset_of_rand_anec():
-    file = open('/home/bulat/gena/gena/anecdotes.csv', encoding='utf-8')
-    read = file.readlines()
-    for i in range(len(read)):
-        read[i] = read[i].replace('<br/>', '\n').replace('<br>', '\n').replace('</br>', '\n')
-    return read
+    data = []
+    with ANECDOTES_FILE.open(encoding='utf-8') as f:
+        for line in f.readlines():
+            line = line.strip().replace('<br/>', '\n').replace('<br>', '\n').replace('</br>', '\n')
+            data.append(line)
+
+    return data
 
 
 def generate(
-    model, tok, text,
-    do_sample=True, max_length=50, repetition_penalty=5.0,
-    top_k=5, top_p=0.95, temperature=1,
-    num_beams=None,
-    no_repeat_ngram_size=3
-    ):
+        model: GPT2LMHeadModel,
+        tok: GPT2Tokenizer,
+        text: str,
+        do_sample: bool = True,
+        max_length: int = 50,
+        repetition_penalty: float = 5.0,
+        top_k: int = 5,
+        top_p: float = 0.95,
+        temperature: float = 1,
+        num_beams: Optional[int] = None,
+        no_repeat_ngram_size: int = 3
+) -> List[str]:
     input_ids = tok.encode(text, return_tensors="pt")
     out = model.generate(
       input_ids,
@@ -115,7 +130,7 @@ class AnecByStart(Filter):
         return parameters['mode'] == 1
 
 
-def CreateRankButton():
+def create_rank_button():
     markup = types.inline_keyboard.InlineKeyboardMarkup(one_time_keyboard=True)
     markup.add(types.inline_keyboard.InlineKeyboardButton(text='Оррр выше гоооор!!! \U0001F44D',
                                                           callback_data='rate like'))
@@ -142,7 +157,7 @@ async def send_welcome(message):
 async def process_step(message):
     read = create_dataset_of_rand_anec()
     if message.text == 'Случайный анекдот':
-        markup = CreateRankButton()
+        markup = create_rank_button()
         anec = read[random.choice(range(len(read)))]
         update_user(message.chat.id, 'anec', anec, 'NeOleg', 'user_id')
         update_user(message.chat.id, 'mode', 0, 'NeOleg', 'user_id')
@@ -160,7 +175,7 @@ async def change_mode(message):
 
 @dp.message_handler(AnecByStart(), content_types=['text'])
 async def get_anec_by_start(message):
-    markup = CreateRankButton()
+    markup = create_rank_button()
     tok, model = create_model()
     generated = generate(model, tok, message.text, num_beams=10, max_length=50)
     await message.answer(f'{generated[0]}',
@@ -181,7 +196,3 @@ async def callback_rate(call):
 
 if __name__ == '__main__':
     executor.start_polling(dp)
-
-
-
-
