@@ -3,6 +3,7 @@ import random
 import torch
 import logging
 import os
+import generate_transformers as gg
 
 import numpy as np
 
@@ -21,10 +22,15 @@ ENDPOINT = os.environ['ENDPOINT']
 ACCESS_KEY = os.environ['ACCESS_KEY']
 SECRET_KEY = os.environ['SECRET_KEY']
 
+logger = logging.getLogger(__name__)
+f_handler = logging.FileHandler('/home/bulat/gena/gena/file.log')
+f_handler.setLevel(logging.DEBUG)
+f_handler.setFormatter(logging.Formatter('%(message)s'))
+logger.addHandler(f_handler)
 
-def start_logging(user_id, anec, rate):
-    logging.basicConfig(filename='/home/bulat/gena/gena/bot.log', filemode='w', format='%(message)s')
-    logging.warning(f'{user_id} <pp> {anec} <pp> {rate}')
+
+def start_logging(user_id, anec, rate, logger):
+    logger.warning(f'{user_id} <pp> {anec} <pp> {rate}')
 
 
 def load_tokenizer_and_model(model_name_or_path):
@@ -110,7 +116,7 @@ class AnecByStart(Filter):
 
 
 def CreateRankButton():
-    markup = types.inline_keyboard.InlineKeyboardMarkup()
+    markup = types.inline_keyboard.InlineKeyboardMarkup(one_time_keyboard=True)
     markup.add(types.inline_keyboard.InlineKeyboardButton(text='Оррр выше гоооор!!! \U0001F44D',
                                                           callback_data='rate like'))
     markup.add(types.inline_keyboard.InlineKeyboardButton(text='Так себе \U0001F44E',
@@ -120,7 +126,6 @@ def CreateRankButton():
 
 @dp.message_handler(commands=['start'])
 async def send_welcome(message):
-    logging.info('Privet')
     await message.answer(f'*Привет, {message.from_user.first_name}!* '
                          f'*Я Не Олег*! Ты можешь поднять себе настроение, почитав мои уморительные анекдоты!',
                          parse_mode='Markdown')
@@ -169,8 +174,9 @@ async def get_anec_by_start(message):
 async def callback_rate(call):
     rate = 0 if call.data.split()[1] == 'dislike' else 1
     anec = get_user(call.message.chat.id, 'NeOleg', 'user_id')['anec']
-    start_logging(call.message.chat.id, anec.replace('\n', '<br>'), rate)
+    start_logging(call.message.chat.id, anec.replace('\n', '<br>'), rate, logger)
     await call.answer(f'Спасибо за оценку!!! \U0001F60D')
+    # await methods.edit_message_reply_markup.EditMessageReplyMarkup(chat_id=call.message.chat.id, message_id=call.message.message_id, text=anec)
 
 
 if __name__ == '__main__':
