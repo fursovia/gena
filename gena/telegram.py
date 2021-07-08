@@ -2,7 +2,8 @@ import random
 import logging
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
+from functools import lru_cache
 
 import boto3
 import torch
@@ -10,6 +11,7 @@ import numpy as np
 import generate_transformers as gg
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
 from aiogram import Bot, types
+from aiogram.types.message import Message
 from aiogram.utils import executor
 from aiogram.dispatcher import FSMContext, Dispatcher
 from aiogram.dispatcher.filters import Text, Filter
@@ -24,7 +26,7 @@ dp = Dispatcher(bot)
 ROOT_DIR = (Path(__file__).parent / "..").resolve()
 ANECDOTES_FILE = ROOT_DIR / "data" / "anecdotes.csv"
 
-modes = ['Случайный анекдот', 'Задать начало']
+MODES = ('Случайный анекдот', 'Задать начало')
 ENDPOINT = os.environ['ENDPOINT']
 ACCESS_KEY = os.environ['ACCESS_KEY']
 SECRET_KEY = os.environ['SECRET_KEY']
@@ -42,12 +44,9 @@ def start_logging(user_id, anec, rate, logger):
     logger.warning(f'{user_id} <pp> {anec} <pp> {rate}')
 
 
-def load_tokenizer_and_model(model_name_or_path):
-    return GPT2Tokenizer.from_pretrained(model_name_or_path), GPT2LMHeadModel.from_pretrained(model_name_or_path)
-
-
-def create_model():
-    tok, model = load_tokenizer_and_model(MODEL_DIR)
+@lru_cache(maxsize=None)
+def create_model() -> Tuple[GPT2Tokenizer, GPT2LMHeadModel]:
+    tok, model = GPT2Tokenizer.from_pretrained(MODEL_DIR), GPT2LMHeadModel.from_pretrained(MODEL_DIR)
     return tok, model
 
 
@@ -104,16 +103,18 @@ def get_user(user_id, table, hash_name):
 
 
 def update_user(user_id, parameter, value, table, hash_name):
-    ydb_docapi_client = boto3.resource('dynamodb', region_name='ru-central1', endpoint_url=ENDPOINT,
-                                       aws_access_key_id=ACCESS_KEY,
-                                       aws_secret_access_key=SECRET_KEY)
+    ydb_docapi_client = boto3.resource(
+        'dynamodb',
+        region_name='ru-central1',
+        endpoint_url=ENDPOINT,
+        aws_access_key_id=ACCESS_KEY,
+        aws_secret_access_key=SECRET_KEY
+    )
     table = ydb_docapi_client.Table(table)
-
     table.update_item(
-        Key = {hash_name: user_id},
+        Key={hash_name: user_id},
         UpdateExpression=f"set {parameter} = :p",
-        ExpressionAttributeValues={
-            ':p': value},
+        ExpressionAttributeValues={':p': value},
         ReturnValues="UPDATED_NEW"
     )
 
@@ -140,29 +141,29 @@ def create_rank_button():
 
 
 @dp.message_handler(commands=['start'])
-async def send_welcome(message):
+async def send_welcome(message: Message):
     await message.answer(f'*Привет, {message.from_user.first_name}!* '
                          f'*Я Не Олег*! Ты можешь поднять себе настроение, почитав мои уморительные анекдоты!',
                          parse_mode='Markdown')
 
     markup = types.reply_keyboard.ReplyKeyboardMarkup(one_time_keyboard=False, row_width=1, resize_keyboard=True)
-    markup.add('Случайный анекдот', 'Задать начало')
+    markup.add(*MODES)
 
     parameters = {'user_id': message.chat.id, 'mode': 0, 'anec': ''}
     load_user_info(parameters, 'NeOleg')
     await message.answer('Выбери способ генерации анекдотов.', reply_markup=markup)
 
 
-@dp.message_handler(Text(modes), content_types=['text'])
+@dp.message_handler(Text(MODES), content_types=['text'])
 async def process_step(message):
-    read = create_dataset_of_rand_anec()
-    if message.text == 'Случайный анекдот':
+    anecdotes = create_dataset_of_rand_anec()
+    if message.text == MODES[0]:
         markup = create_rank_button()
-        anec = read[random.choice(range(len(read)))]
+        anec = random.choice(anecdotes)
         update_user(message.chat.id, 'anec', anec, 'NeOleg', 'user_id')
         update_user(message.chat.id, 'mode', 0, 'NeOleg', 'user_id')
         await message.answer(anec, reply_markup=markup)
-    elif message.text == 'Задать начало':
+    elif message.text == MODES[1]:
         update_user(message.chat.id, 'mode', 1, 'NeOleg', 'user_id')
         await message.answer('Введите начало анекдота.')
 
@@ -177,7 +178,7 @@ async def change_mode(message):
 async def get_anec_by_start(message):
     markup = create_rank_button()
     tok, model = create_model()
-    generated = generate(model, tok, message.text, num_beams=10, max_length=50)
+    generated = generate(model, tok, message.text, do_sample=True, max_length=50)
     await message.answer(f'{generated[0]}',
                          reply_markup=markup,
                          parse_mode='Markdown')
