@@ -2,7 +2,7 @@ import random
 import logging
 import os
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Dict, Any, Tuple
 from functools import lru_cache
 
 import boto3
@@ -26,7 +26,7 @@ dp = Dispatcher(bot)
 ROOT_DIR = (Path(__file__).parent / "..").resolve()
 ANECDOTES_FILE = ROOT_DIR / "data" / "anecdotes.csv"
 
-MODES = ('Случайный анекдот', 'Задать начало')
+modes = ('Случайный анекдот', 'Задать начало')
 ENDPOINT = os.environ['ENDPOINT']
 ACCESS_KEY = os.environ['ACCESS_KEY']
 SECRET_KEY = os.environ['SECRET_KEY']
@@ -40,7 +40,12 @@ f_handler.setFormatter(logging.Formatter('%(message)s'))
 logger.addHandler(f_handler)
 
 
-def start_logging(user_id, anec, rate, logger):
+def start_logging(
+        user_id: str,
+        anec: str,
+        rate: int,
+        logger: logging.Logger
+) -> None:
     logger.warning(f'{user_id} <pp> {anec} <pp> {rate}')
 
 
@@ -85,7 +90,10 @@ def generate(
     return list(map(tok.decode, out))
 
 
-def load_user_info(user, table):
+def load_user_info(
+        user: Dict[str, Any],
+        table: str
+) -> None:
     ydb_docapi_client = boto3.resource('dynamodb', region_name='ru-central1', endpoint_url=ENDPOINT,
                                        aws_access_key_id=ACCESS_KEY,
                                        aws_secret_access_key=SECRET_KEY)
@@ -93,7 +101,11 @@ def load_user_info(user, table):
     table.put_item(Item=user)
 
 
-def get_user(user_id, table, hash_name):
+def get_user(
+        user_id: str,
+        table: str,
+        hash_name: str
+) -> Dict[str, Any]:
     ydb_docapi_client = boto3.resource('dynamodb', region_name='ru-central1', endpoint_url=ENDPOINT,
                                        aws_access_key_id=ACCESS_KEY,
                                        aws_secret_access_key=SECRET_KEY)
@@ -192,8 +204,13 @@ async def callback_rate(call):
     anec = get_user(call.message.chat.id, 'NeOleg', 'user_id')['anec']
     start_logging(call.message.chat.id, anec.replace('\n', '<br>'), rate, logger)
     await call.answer(f'Спасибо за оценку!!! \U0001F60D')
+    await call.message.edit_text(anec)
     # await methods.edit_message_reply_markup.EditMessageReplyMarkup(chat_id=call.message.chat.id, message_id=call.message.message_id, text=anec)
 
+
+async def edit_msg(
+        message: types.Message):
+    await message.edit_text("Так")
 
 if __name__ == '__main__':
     executor.start_polling(dp)
