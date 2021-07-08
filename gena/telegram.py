@@ -8,10 +8,8 @@ from functools import lru_cache
 import boto3
 import torch
 import numpy as np
-import generate_transformers as gg
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
 from aiogram import Bot, types
-from aiogram.types.message import Message
 from aiogram.utils import executor
 from aiogram.dispatcher import FSMContext, Dispatcher
 from aiogram.dispatcher.filters import Text, Filter
@@ -31,7 +29,7 @@ ENDPOINT = os.environ['ENDPOINT']
 ACCESS_KEY = os.environ['ACCESS_KEY']
 SECRET_KEY = os.environ['SECRET_KEY']
 LOGS_FILE = os.environ.get("LOGS_FILE", "/home/bulat/gena/gena/file.log")
-MODEL_DIR = os.environ.get("MODEL_DIR", "/home/bulat/gena/models/rugpt3small_based_on_gpt2")
+MODEL_DIR = os.environ.get("MODEL_DIR", "/home/bulat/gena/models/rugpt3small_based_on_gpt2_pretrained")
 
 logger = logging.getLogger(__name__)
 f_handler = logging.FileHandler(LOGS_FILE)
@@ -55,7 +53,7 @@ def create_model() -> Tuple[GPT2Tokenizer, GPT2LMHeadModel]:
     return tok, model
 
 
-def create_dataset_of_rand_anec():
+def create_dataset_of_rand_anec() -> List[str]:
     data = []
     with ANECDOTES_FILE.open(encoding='utf-8') as f:
         for line in f.readlines():
@@ -114,7 +112,13 @@ def get_user(
     return response['Item']
 
 
-def update_user(user_id, parameter, value, table, hash_name):
+def update_user(
+        user_id: str,
+        parameter: str,
+        value: Any,
+        table: str,
+        hash_name: str
+) -> None:
     ydb_docapi_client = boto3.resource(
         'dynamodb',
         region_name='ru-central1',
@@ -132,13 +136,19 @@ def update_user(user_id, parameter, value, table, hash_name):
 
 
 class RandomAnec(Filter):
-    async def check(self, message: types.Message):
+    async def check(
+            self,
+            message: types.Message
+    ) -> bool:
         parameters = get_user(message.chat.id, 'NeOleg', 'user_id')
         return parameters['mode'] == 0
 
 
 class AnecByStart(Filter):
-    async def check(self, message: types.Message):
+    async def check(
+            self,
+            message: types.Message
+    ) -> bool:
         parameters = get_user(message.chat.id, 'NeOleg', 'user_id')
         return parameters['mode'] == 1
 
@@ -153,7 +163,7 @@ def create_rank_button():
 
 
 @dp.message_handler(commands=['start'])
-async def send_welcome(message: Message):
+async def send_welcome(message: types.Message):
     await message.answer(f'*Привет, {message.from_user.first_name}!* '
                          f'*Я Не Олег*! Ты можешь поднять себе настроение, почитав мои уморительные анекдоты!',
                          parse_mode='Markdown')
@@ -167,7 +177,7 @@ async def send_welcome(message: Message):
 
 
 @dp.message_handler(Text(MODES), content_types=['text'])
-async def process_step(message):
+async def process_step(message: types.Message):
     anecdotes = create_dataset_of_rand_anec()
     if message.text == MODES[0]:
         markup = create_rank_button()
@@ -181,16 +191,16 @@ async def process_step(message):
 
 
 @dp.message_handler(RandomAnec(), content_types=['text'])
-async def change_mode(message):
+async def change_mode(message: types.Message):
     await message.answer(f'Смените режим генерации анекдотов на *Задать начало*',
                          parse_mode='Markdown')
 
 
 @dp.message_handler(AnecByStart(), content_types=['text'])
-async def get_anec_by_start(message):
+async def get_anec_by_start(message: types.Message):
     markup = create_rank_button()
     tok, model = create_model()
-    generated = generate(model, tok, message.text, do_sample=True, max_length=50)
+    generated = generate(model, tok, message.text, num_beams=5, max_length=80)
     await message.answer(f'{generated[0]}',
                          reply_markup=markup,
                          parse_mode='Markdown')
@@ -199,18 +209,13 @@ async def get_anec_by_start(message):
 
 
 @dp.callback_query_handler(Text(startswith='rate'))
-async def callback_rate(call):
+async def callback_rate(call: types.CallbackQuery):
     rate = 0 if call.data.split()[1] == 'dislike' else 1
     anec = get_user(call.message.chat.id, 'NeOleg', 'user_id')['anec']
     start_logging(call.message.chat.id, anec.replace('\n', '<br>'), rate, logger)
     await call.answer(f'Спасибо за оценку!!! \U0001F60D')
     await call.message.edit_text(anec)
-    # await methods.edit_message_reply_markup.EditMessageReplyMarkup(chat_id=call.message.chat.id, message_id=call.message.message_id, text=anec)
 
-
-async def edit_msg(
-        message: types.Message):
-    await message.edit_text("Так")
 
 if __name__ == '__main__':
     executor.start_polling(dp)
