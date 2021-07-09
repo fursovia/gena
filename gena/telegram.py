@@ -2,7 +2,9 @@ import re
 import razdel
 import random
 import logging
+import asyncio
 import os
+import functools
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 from functools import lru_cache
@@ -16,6 +18,9 @@ from aiogram import Bot, types
 from aiogram.utils import executor
 from aiogram.dispatcher import FSMContext, Dispatcher
 from aiogram.dispatcher.filters import Text, Filter
+
+
+loop = asyncio.get_event_loop()
 
 
 np.random.seed(42)
@@ -89,7 +94,7 @@ def generate(
 ) -> List[str]:
     input_ids = tok.encode(text, return_tensors="pt").cuda()
     out = model.generate(
-      input_ids.cuds(),
+      input_ids.cuda(),
       max_length=max_length,
       repetition_penalty=repetition_penalty,
       do_sample=do_sample,
@@ -195,7 +200,9 @@ async def process_step(message: types.Message):
         mode_gen = np.random.choice(2, p=[0.3, 0.7])
         if mode_gen == 1:
             beginning = next(razdel.sentenize(anec)).text
-            anec = process_final_anec(generate(MODEL, TOK, beginning, num_beams=5, max_length=MAX_LENGTH)[0])
+            generated = await loop.run_in_executor(None, functools.partial(generate, model=MODEL, tok=TOK,
+                                                                           text=beginning, num_beams=5, max_length=MAX_LENGTH))
+            anec = process_final_anec(generated[0])
         update_user(message.chat.id, 'anec', anec, 'NeOleg', 'user_id')
         update_user(message.chat.id, 'mode', 0, 'NeOleg', 'user_id')
         update_user(message.chat.id, 'modes_gen', mode_gen, 'NeOleg', 'user_id')
@@ -215,7 +222,8 @@ async def change_mode(message: types.Message):
 @dp.message_handler(AnecByStart(), content_types=['text'])
 async def get_anec_by_start(message: types.Message):
     markup = create_rank_button()
-    generated = generate(MODEL, TOK, message.text, num_beams=5, max_length=MAX_LENGTH)
+    generated = await loop.run_in_executor(None, functools.partial(generate, model=MODEL, tok=TOK,
+                                                                   text=message.text, num_beams=5, max_length=MAX_LENGTH))
     anec = process_final_anec(generated[0])
     await message.answer(f'{anec}',
                          reply_markup=markup,
