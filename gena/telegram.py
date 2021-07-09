@@ -1,3 +1,4 @@
+import re
 import random
 import logging
 import os
@@ -21,6 +22,8 @@ torch.manual_seed(42)
 bot = Bot(token=os.environ['BOT_TOKEN'])
 dp = Dispatcher(bot)
 
+MAX_LENGTH = 50
+
 ROOT_DIR = (Path(__file__).parent / "..").resolve()
 ANECDOTES_FILE = ROOT_DIR / "data" / "anecdotes.csv"
 
@@ -38,6 +41,11 @@ f_handler.setFormatter(logging.Formatter('%(message)s'))
 logger.addHandler(f_handler)
 
 
+def process_final_anec(anec):
+    residual = re.split('[.!?]', anec)[-1]
+    return anec[:len(anec) - len(residual)]
+
+
 def start_logging(
         user_id: str,
         anec: str,
@@ -49,7 +57,7 @@ def start_logging(
 
 @lru_cache(maxsize=None)
 def create_model() -> Tuple[GPT2Tokenizer, GPT2LMHeadModel]:
-    tok, model = GPT2Tokenizer.from_pretrained(MODEL_DIR), GPT2LMHeadModel.from_pretrained(MODEL_DIR).cuda()
+    tok, model = GPT2Tokenizer.from_pretrained(MODEL_DIR), GPT2LMHeadModel.from_pretrained(MODEL_DIR)
     return tok, model
 
 
@@ -76,9 +84,9 @@ def generate(
         num_beams: Optional[int] = None,
         no_repeat_ngram_size: int = 3
 ) -> List[str]:
-    input_ids = tok.encode(text, return_tensors="pt").cuda()
+    input_ids = tok.encode(text, return_tensors="pt")
     out = model.generate(
-      input_ids.cuda(),
+      input_ids,
       max_length=max_length,
       repetition_penalty=repetition_penalty,
       do_sample=do_sample,
@@ -200,12 +208,13 @@ async def change_mode(message: types.Message):
 async def get_anec_by_start(message: types.Message):
     markup = create_rank_button()
     tok, model = create_model()
-    generated = generate(model, tok, message.text, num_beams=5, max_length=80)
-    await message.answer(f'{generated[0]}',
+    generated = generate(model, tok, message.text, num_beams=5, max_length=MAX_LENGTH)
+    anec = process_final_anec(generated[0])
+    await message.answer(f'{anec}',
                          reply_markup=markup,
                          parse_mode='Markdown')
 
-    update_user(message.chat.id, 'anec', generated[0], 'NeOleg', 'user_id')
+    update_user(message.chat.id, 'anec', anec, 'NeOleg', 'user_id')
 
 
 @dp.callback_query_handler(Text(startswith='rate'))
