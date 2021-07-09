@@ -57,7 +57,7 @@ def start_logging(
 
 @lru_cache(maxsize=None)
 def create_model() -> Tuple[GPT2Tokenizer, GPT2LMHeadModel]:
-    tok, model = GPT2Tokenizer.from_pretrained(MODEL_DIR), GPT2LMHeadModel.from_pretrained(MODEL_DIR)
+    tok, model = GPT2Tokenizer.from_pretrained(MODEL_DIR), GPT2LMHeadModel.from_pretrained(MODEL_DIR).cuda()
     return tok, model
 
 
@@ -84,9 +84,9 @@ def generate(
         num_beams: Optional[int] = None,
         no_repeat_ngram_size: int = 3
 ) -> List[str]:
-    input_ids = tok.encode(text, return_tensors="pt")
+    input_ids = tok.encode(text, return_tensors="pt").cuda()
     out = model.generate(
-      input_ids,
+      input_ids.cuda(),
       max_length=max_length,
       repetition_penalty=repetition_penalty,
       do_sample=do_sample,
