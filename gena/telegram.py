@@ -24,7 +24,7 @@ torch.manual_seed(42)
 bot = Bot(token=os.environ['BOT_TOKEN'])
 dp = Dispatcher(bot)
 
-MAX_LENGTH = 50
+MAX_LENGTH = os.environ['MAX_LENGTH']
 
 ROOT_DIR = (Path(__file__).parent / "..").resolve()
 ANECDOTES_FILE = ROOT_DIR / "data" / "anecdotica.csv"
@@ -61,25 +61,17 @@ def start_logging(
 
 @lru_cache(maxsize=None)
 def create_model() -> Tuple[GPT2Tokenizer, GPT2LMHeadModel]:
-    tok, model = GPT2Tokenizer.from_pretrained(MODEL_DIR), GPT2LMHeadModel.from_pretrained(MODEL_DIR)
+    tok, model = GPT2Tokenizer.from_pretrained(MODEL_DIR), GPT2LMHeadModel.from_pretrained(MODEL_DIR).cuda()
     return tok, model
 
 
 TOK, MODEL = create_model()
 
-# def create_dataset_of_rand_anec() -> List[str]:
-#     data = []
-#     with ANECDOTES_FILE.open(encoding='utf-8') as f:
-#         for line in f.readlines():
-#             line = line.strip().replace('<br/>', '\n').replace('<br>', '\n').replace('</br>', '\n')
-#             data.append(line)
-#
-#     return data
+
 def random_anec() -> List[str]:
     data = pd.read_csv(ANECDOTES_FILE)
     anec = random.choice(data.col)
     return anec
-
 
 
 def generate(
@@ -95,9 +87,9 @@ def generate(
         num_beams: Optional[int] = None,
         no_repeat_ngram_size: int = 3
 ) -> List[str]:
-    input_ids = tok.encode(text, return_tensors="pt")
+    input_ids = tok.encode(text, return_tensors="pt").cuda()
     out = model.generate(
-      input_ids,
+      input_ids.cuda(),
       max_length=max_length,
       repetition_penalty=repetition_penalty,
       do_sample=do_sample,
