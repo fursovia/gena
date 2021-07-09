@@ -1,4 +1,5 @@
 import re
+import razdel
 import random
 import logging
 import os
@@ -9,13 +10,14 @@ from functools import lru_cache
 import boto3
 import torch
 import numpy as np
+import pandas as pd
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
 from aiogram import Bot, types
 from aiogram.utils import executor
 from aiogram.dispatcher import FSMContext, Dispatcher
 from aiogram.dispatcher.filters import Text, Filter
 
-random.seed(42)
+
 np.random.seed(42)
 torch.manual_seed(42)
 
@@ -25,9 +27,10 @@ dp = Dispatcher(bot)
 MAX_LENGTH = 50
 
 ROOT_DIR = (Path(__file__).parent / "..").resolve()
-ANECDOTES_FILE = ROOT_DIR / "data" / "anecdotes.csv"
+ANECDOTES_FILE = ROOT_DIR / "data" / "anecdotica.csv"
 
 MODES = ('Случайный анекдот', 'Задать начало')
+MODES_GENERATION = ('RandAnec', 'RandStart', 'UserStart')
 ENDPOINT = os.environ['ENDPOINT']
 ACCESS_KEY = os.environ['ACCESS_KEY']
 SECRET_KEY = os.environ['SECRET_KEY']
@@ -50,25 +53,33 @@ def start_logging(
         user_id: str,
         anec: str,
         rate: int,
+        modes_gen: int,
         logger: logging.Logger
 ) -> None:
-    logger.warning(f'{user_id} <pp> {anec} <pp> {rate}')
+    logger.warning(f'{user_id} <pp> {anec} <pp> {rate} <pp> {modes_gen}')
 
 
 @lru_cache(maxsize=None)
 def create_model() -> Tuple[GPT2Tokenizer, GPT2LMHeadModel]:
-    tok, model = GPT2Tokenizer.from_pretrained(MODEL_DIR), GPT2LMHeadModel.from_pretrained(MODEL_DIR).cuda()
+    tok, model = GPT2Tokenizer.from_pretrained(MODEL_DIR), GPT2LMHeadModel.from_pretrained(MODEL_DIR)
     return tok, model
 
 
-def create_dataset_of_rand_anec() -> List[str]:
-    data = []
-    with ANECDOTES_FILE.open(encoding='utf-8') as f:
-        for line in f.readlines():
-            line = line.strip().replace('<br/>', '\n').replace('<br>', '\n').replace('</br>', '\n')
-            data.append(line)
+TOK, MODEL = create_model()
 
-    return data
+# def create_dataset_of_rand_anec() -> List[str]:
+#     data = []
+#     with ANECDOTES_FILE.open(encoding='utf-8') as f:
+#         for line in f.readlines():
+#             line = line.strip().replace('<br/>', '\n').replace('<br>', '\n').replace('</br>', '\n')
+#             data.append(line)
+#
+#     return data
+def random_anec() -> List[str]:
+    data = pd.read_csv(ANECDOTES_FILE)
+    anec = random.choice(data.col)
+    return anec
+
 
 
 def generate(
@@ -84,9 +95,9 @@ def generate(
         num_beams: Optional[int] = None,
         no_repeat_ngram_size: int = 3
 ) -> List[str]:
-    input_ids = tok.encode(text, return_tensors="pt").cuda()
+    input_ids = tok.encode(text, return_tensors="pt")
     out = model.generate(
-      input_ids.cuda(),
+      input_ids,
       max_length=max_length,
       repetition_penalty=repetition_penalty,
       do_sample=do_sample,
@@ -179,22 +190,27 @@ async def send_welcome(message: types.Message):
     markup = types.reply_keyboard.ReplyKeyboardMarkup(one_time_keyboard=False, row_width=1, resize_keyboard=True)
     markup.add(*MODES)
 
-    parameters = {'user_id': message.chat.id, 'mode': 0, 'anec': ''}
+    parameters = {'user_id': message.chat.id, 'mode': 0, 'anec': '', 'modes_gen': 0}
     load_user_info(parameters, 'NeOleg')
     await message.answer('Выбери способ генерации анекдотов.', reply_markup=markup)
 
 
 @dp.message_handler(Text(MODES), content_types=['text'])
 async def process_step(message: types.Message):
-    anecdotes = create_dataset_of_rand_anec()
     if message.text == MODES[0]:
         markup = create_rank_button()
-        anec = random.choice(anecdotes)
+        anec = random_anec()
+        mode_gen = np.random.choice(2, p=[0.9, 0.1])
+        if mode_gen == 1:
+            beginning = next(razdel.sentenize(anec)).text
+            anec = generate(MODEL, TOK, beginning, num_beams=5, max_length=MAX_LENGTH)[0]
         update_user(message.chat.id, 'anec', anec, 'NeOleg', 'user_id')
         update_user(message.chat.id, 'mode', 0, 'NeOleg', 'user_id')
+        update_user(message.chat.id, 'modes_gen', mode_gen, 'NeOleg', 'user_id')
         await message.answer(anec, reply_markup=markup)
     elif message.text == MODES[1]:
         update_user(message.chat.id, 'mode', 1, 'NeOleg', 'user_id')
+        update_user(message.chat.id, 'modes_gen', 2, 'NeOleg', 'user_id')
         await message.answer('Введите начало анекдота.')
 
 
@@ -207,8 +223,7 @@ async def change_mode(message: types.Message):
 @dp.message_handler(AnecByStart(), content_types=['text'])
 async def get_anec_by_start(message: types.Message):
     markup = create_rank_button()
-    tok, model = create_model()
-    generated = generate(model, tok, message.text, num_beams=5, max_length=MAX_LENGTH)
+    generated = generate(MODEL, TOK, message.text, num_beams=5, max_length=MAX_LENGTH)
     anec = process_final_anec(generated[0])
     await message.answer(f'{anec}',
                          reply_markup=markup,
@@ -220,8 +235,10 @@ async def get_anec_by_start(message: types.Message):
 @dp.callback_query_handler(Text(startswith='rate'))
 async def callback_rate(call: types.CallbackQuery):
     rate = 0 if call.data.split()[1] == 'dislike' else 1
-    anec = get_user(call.message.chat.id, 'NeOleg', 'user_id')['anec']
-    start_logging(call.message.chat.id, anec.replace('\n', '<br>'), rate, logger)
+    user_data = get_user(call.message.chat.id, 'NeOleg', 'user_id')
+    anec = user_data['anec']
+    mode_gen = user_data['modes_gen']
+    start_logging(call.message.chat.id, anec.replace('\n\r\n', '<br>'), rate, mode_gen,logger)
     await call.answer(f'Спасибо за оценку!!! \U0001F60D')
     await call.message.edit_text(anec)
 
