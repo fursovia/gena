@@ -10,6 +10,7 @@ aiogram = "^2.14.2"
 boto3 = "^1.17.106"
 transformers = "3.5.0"
 torch = "1.7.0"
+razdel = "^0.5.0"
 
 [tool.poetry.dev-dependencies]
 
