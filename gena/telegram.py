@@ -89,7 +89,7 @@ def generate(
 ) -> List[str]:
     input_ids = tok.encode(text, return_tensors="pt").cuda()
     out = model.generate(
-      input_ids.cuda(),
+      input_ids.cuds(),
       max_length=max_length,
       repetition_penalty=repetition_penalty,
       do_sample=do_sample,
@@ -195,7 +195,7 @@ async def process_step(message: types.Message):
         mode_gen = np.random.choice(2, p=[0.3, 0.7])
         if mode_gen == 1:
             beginning = next(razdel.sentenize(anec)).text
-            anec = generate(MODEL, TOK, beginning, num_beams=5, max_length=MAX_LENGTH)[0]
+            anec = process_final_anec(generate(MODEL, TOK, beginning, num_beams=5, max_length=MAX_LENGTH)[0])
         update_user(message.chat.id, 'anec', anec, 'NeOleg', 'user_id')
         update_user(message.chat.id, 'mode', 0, 'NeOleg', 'user_id')
         update_user(message.chat.id, 'modes_gen', mode_gen, 'NeOleg', 'user_id')
@@ -230,7 +230,7 @@ async def callback_rate(call: types.CallbackQuery):
     user_data = get_user(call.message.chat.id, 'NeOleg', 'user_id')
     anec = user_data['anec']
     mode_gen = user_data['modes_gen']
-    start_logging(call.message.chat.id, anec.replace('\n\r\n', '<br>'), rate, mode_gen,logger)
+    start_logging(call.message.chat.id, anec.replace('\n\r\n', '<br>').replace('\n', '<br>'), rate, mode_gen,logger)
     await call.answer(f'Спасибо за оценку!!! \U0001F60D')
     await call.message.edit_text(anec)
 
