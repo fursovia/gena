@@ -24,7 +24,7 @@ torch.manual_seed(42)
 bot = Bot(token=os.environ['BOT_TOKEN'])
 dp = Dispatcher(bot)
 
-MAX_LENGTH = os.environ['MAX_LENGTH']
+MAX_LENGTH = int(os.environ['MAX_LENGTH'])
 
 ROOT_DIR = (Path(__file__).parent / "..").resolve()
 ANECDOTES_FILE = ROOT_DIR / "data" / "anecdotica.csv"
@@ -192,7 +192,7 @@ async def process_step(message: types.Message):
     if message.text == MODES[0]:
         markup = create_rank_button()
         anec = random_anec()
-        mode_gen = np.random.choice(2, p=[0.9, 0.1])
+        mode_gen = np.random.choice(2, p=[0.3, 0.7])
         if mode_gen == 1:
             beginning = next(razdel.sentenize(anec)).text
             anec = generate(MODEL, TOK, beginning, num_beams=5, max_length=MAX_LENGTH)[0]
