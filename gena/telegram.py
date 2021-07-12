@@ -20,14 +20,13 @@ from aiogram.dispatcher import FSMContext, Dispatcher
 from aiogram.dispatcher.filters import Text, Filter
 
 
-loop = asyncio.get_event_loop()
-
-
 np.random.seed(42)
 torch.manual_seed(42)
 
 bot = Bot(token=os.environ['BOT_TOKEN'])
 dp = Dispatcher(bot)
+
+LOOP = asyncio.get_event_loop()
 
 MAX_LENGTH = int(os.environ['MAX_LENGTH'])
 
@@ -49,7 +48,15 @@ f_handler.setFormatter(logging.Formatter('%(message)s'))
 logger.addHandler(f_handler)
 
 
-def process_final_anec(anec):
+def check_for_digit(text: str) -> bool:
+    try:
+        temperature = float(text)
+        return True
+    except ValueError:
+        return False
+
+
+def process_final_anec(anec: str) -> str:
     residual = re.split('[.!?]', anec)[-1]
     return anec[:len(anec) - len(residual)]
 
@@ -68,9 +75,6 @@ def start_logging(
 def create_model() -> Tuple[GPT2Tokenizer, GPT2LMHeadModel]:
     tok, model = GPT2Tokenizer.from_pretrained(MODEL_DIR), GPT2LMHeadModel.from_pretrained(MODEL_DIR).cuda()
     return tok, model
-
-
-TOK, MODEL = create_model()
 
 
 def random_anec() -> List[str]:
@@ -169,6 +173,14 @@ class AnecByStart(Filter):
         return parameters['mode'] == 1
 
 
+class Temperature(Filter):
+    async def check(
+            self,
+            message: types.Message
+    ) -> bool:
+        return get_user(message.chat.id, 'NeOleg', 'user_id')['change_temperature'] == 1
+
+
 def create_rank_button():
     markup = types.inline_keyboard.InlineKeyboardMarkup(one_time_keyboard=True)
     markup.add(types.inline_keyboard.InlineKeyboardButton(text='Оррр выше гоооор!!! \U0001F44D',
@@ -181,15 +193,50 @@ def create_rank_button():
 @dp.message_handler(commands=['start'])
 async def send_welcome(message: types.Message):
     await message.answer(f'*Привет, {message.from_user.first_name}!* '
-                         f'*Я Не Олег*! Ты можешь поднять себе настроение, почитав мои уморительные анекдоты!',
+                         f'*Я Не Олег*! Ты можешь поднять себе настроение, почитав мои уморительные анекдоты!\n\n'
+                         f'Если нужна помощь, то нажми /help.',
                          parse_mode='Markdown')
 
     markup = types.reply_keyboard.ReplyKeyboardMarkup(one_time_keyboard=False, row_width=1, resize_keyboard=True)
     markup.add(*MODES)
 
-    parameters = {'user_id': message.chat.id, 'mode': 0, 'anec': '', 'modes_gen': 0}
+    parameters = {'user_id': message.chat.id, 'mode': 0, 'anec': '', 'modes_gen': 0, 'change_temperature': 0, 'temperature': '1.0'}
     load_user_info(parameters, 'NeOleg')
     await message.answer('Выбери способ генерации анекдотов.', reply_markup=markup)
+
+
+@dp.message_handler(commands=['help'])
+async def get_help(message):
+    await message.answer(f'В нашем боте доступно 2 опции:\n\n'
+                         f'<b>Случайный анекдот</b> - из базы будет выбрана случайная затравка (начало анекдота) и по ней '
+                         f'сгенерирован анекдот.\n\n'
+                         f'<b>Задать начало</b> - пользователь сам задает начало анекдота.'
+                         f'\n\n\n'
+                         f'Список доступных команд:\n'
+                         f'/start - перезапустить бота (в случае неисправностей)\n'
+                         f'/help - получить информацию о возможностях бота\n'
+                         f'/change_temperature - изменить степень вариативности анекдотов',
+                         parse_mode='HTML')
+
+
+@dp.message_handler(commands=['change_temperature'])
+async def chenge_temperature(message: types.Message):
+    update_user(message.chat.id, 'change_temperature', 1, 'NeOleg', 'user_id')
+    await message.answer(text='Выберите степень вариативности анекдотов (число больше 0). С увеличением степени вариативности '
+                              'генерируемые анекдоты разнообразнее, но могут быть менее связными.')
+
+
+@dp.message_handler(Temperature(), content_types=['text'])
+async def get_top_n_films(message, state: FSMContext):
+    if not check_for_digit(message.text):
+        await message.answer(f'Введи число.')
+    elif 0 >= float(message.text):
+        await message.answer(f'Введи значение больше 0.')
+    else:
+        update_user(message.chat.id, 'temperature', message.text, 'NeOleg', 'user_id')
+        update_user(message.chat.id, 'change_temperature', 0, 'NeOleg', 'user_id')
+
+        await message.answer(f'Теперь степень вариативности равна {message.text}.')
 
 
 @dp.message_handler(Text(MODES), content_types=['text'])
@@ -198,10 +245,13 @@ async def process_step(message: types.Message):
         markup = create_rank_button()
         anec = random_anec()
         mode_gen = np.random.choice(2, p=[0.3, 0.7])
+        tok, model = create_model()
+        temperature = float(get_user(message.chat.id, 'NeOleg', 'user_id')['temperature'])
         if mode_gen == 1:
             beginning = next(razdel.sentenize(anec)).text
-            generated = await loop.run_in_executor(None, functools.partial(generate, model=MODEL, tok=TOK,
-                                                                           text=beginning, num_beams=5, max_length=MAX_LENGTH))
+            generated = await LOOP.run_in_executor(None, functools.partial(generate, model=model, tok=tok,
+                                                                           text=beginning, num_beams=5, max_length=MAX_LENGTH,
+                                                                           temperature=temperature))
             anec = process_final_anec(generated[0])
         update_user(message.chat.id, 'anec', anec, 'NeOleg', 'user_id')
         update_user(message.chat.id, 'mode', 0, 'NeOleg', 'user_id')
@@ -222,8 +272,11 @@ async def change_mode(message: types.Message):
 @dp.message_handler(AnecByStart(), content_types=['text'])
 async def get_anec_by_start(message: types.Message):
     markup = create_rank_button()
-    generated = await loop.run_in_executor(None, functools.partial(generate, model=MODEL, tok=TOK,
-                                                                   text=message.text, num_beams=5, max_length=MAX_LENGTH))
+    tok, model = create_model()
+    temperature = float(get_user(message.chat.id, 'NeOleg', 'user_id')['temperature'])
+    generated = await LOOP.run_in_executor(None, functools.partial(generate, model=model, tok=tok,
+                                                                   text=message.text, num_beams=5, max_length=MAX_LENGTH,
+                                                                   temperature=temperature))
     anec = process_final_anec(generated[0])
     await message.answer(f'{anec}',
                          reply_markup=markup,
